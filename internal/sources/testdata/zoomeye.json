@@ -1,0 +1,7 @@
+{
+  "list": [
+    {"name": "www.example.com"},
+    {"name": "api.example.com"},
+    {"name": "mail.example.com"}
+  ]
+}
