@@ -27,7 +27,10 @@ const (
 	defaultRetries = 2
 	defaultTimeout = 30
 
-	maxRateLimitRetries  = 3
+	maxRateLimitRetries = 3
+)
+
+var (
 	rateLimitBaseDelay   = 500 * time.Millisecond
 	rateLimitJitterRange = 200 * time.Millisecond
 )
@@ -369,7 +372,10 @@ func fetchWithRateLimitRetry(source sourceDefinition, domain string, verbose boo
 		}
 
 		base := rateLimitBaseDelay * (1 << uint(attempt))
-		jitter := time.Duration(rand.Int63n(int64(rateLimitJitterRange))) - rateLimitJitterRange/2
+		jitter := time.Duration(0)
+		if rateLimitJitterRange > 0 {
+			jitter = time.Duration(rand.Int63n(int64(rateLimitJitterRange))) - rateLimitJitterRange/2
+		}
 		delay := base + jitter
 		if delay < 0 {
 			delay = 0

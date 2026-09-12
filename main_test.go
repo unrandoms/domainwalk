@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lumiaurora/subscan/internal/output"
+	"github.com/lumiaurora/subscan/internal/sources"
 )
 
 func TestSelectSourcesIncludeExclude(t *testing.T) {
@@ -115,6 +116,87 @@ func TestBuildBatchReportCountsTargets(t *testing.T) {
 
 	if !report.ResolvedEnabled {
 		t.Fatalf("expected resolved flag to be true")
+	}
+}
+
+func TestFetchWithRateLimitRetrySucceedsAfterRateLimit(t *testing.T) {
+	// Override delays so the test does not actually sleep.
+	origBase, origJitter := rateLimitBaseDelay, rateLimitJitterRange
+	rateLimitBaseDelay, rateLimitJitterRange = 0, 0
+	t.Cleanup(func() { rateLimitBaseDelay, rateLimitJitterRange = origBase, origJitter })
+
+	calls := 0
+	src := sourceDefinition{
+		name: "TestSource",
+		fetch: func(_ string) ([]string, error) {
+			calls++
+			if calls < 2 {
+				return nil, &sources.SourceError{Health: sources.HealthRateLimited, Message: "rate limited"}
+			}
+			return []string{"sub.example.com"}, nil
+		},
+	}
+
+	entries, err := fetchWithRateLimitRetry(src, "example.com", false)
+	if err != nil {
+		t.Fatalf("expected success after retry, got error: %v", err)
+	}
+
+	if len(entries) != 1 || entries[0] != "sub.example.com" {
+		t.Fatalf("unexpected entries: %v", entries)
+	}
+
+	if calls != 2 {
+		t.Fatalf("expected 2 calls (1 rate-limited + 1 success), got %d", calls)
+	}
+}
+
+func TestFetchWithRateLimitRetryExhaustsMaxRetries(t *testing.T) {
+	origBase, origJitter := rateLimitBaseDelay, rateLimitJitterRange
+	rateLimitBaseDelay, rateLimitJitterRange = 0, 0
+	t.Cleanup(func() { rateLimitBaseDelay, rateLimitJitterRange = origBase, origJitter })
+
+	calls := 0
+	src := sourceDefinition{
+		name: "TestSource",
+		fetch: func(_ string) ([]string, error) {
+			calls++
+			return nil, &sources.SourceError{Health: sources.HealthRateLimited, Message: "always rate limited"}
+		},
+	}
+
+	_, err := fetchWithRateLimitRetry(src, "example.com", false)
+	if err == nil {
+		t.Fatal("expected error after exhausting retries")
+	}
+
+	if sources.ErrorHealth(err) != sources.HealthRateLimited {
+		t.Fatalf("expected rate-limited health after exhausted retries, got %s", sources.ErrorHealth(err))
+	}
+
+	// 1 initial attempt + maxRateLimitRetries retries
+	if calls != maxRateLimitRetries+1 {
+		t.Fatalf("expected %d calls, got %d", maxRateLimitRetries+1, calls)
+	}
+}
+
+func TestFetchWithRateLimitRetryNoRetryOnOtherErrors(t *testing.T) {
+	calls := 0
+	src := sourceDefinition{
+		name: "TestSource",
+		fetch: func(_ string) ([]string, error) {
+			calls++
+			return nil, &sources.SourceError{Health: sources.HealthDegraded, Message: "degraded"}
+		},
+	}
+
+	_, err := fetchWithRateLimitRetry(src, "example.com", false)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if calls != 1 {
+		t.Fatalf("expected exactly 1 call for non-rate-limited error, got %d", calls)
 	}
 }
 
