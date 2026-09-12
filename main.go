@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,6 +26,10 @@ const (
 	defaultThreads = 20
 	defaultRetries = 2
 	defaultTimeout = 30
+
+	maxRateLimitRetries  = 3
+	rateLimitBaseDelay   = 500 * time.Millisecond
+	rateLimitJitterRange = 200 * time.Millisecond
 )
 
 type sourceDefinition struct {
@@ -67,6 +72,8 @@ var sourceRegistry = []sourceDefinition{
 	{id: "rapiddns", name: "RapidDNS", aliases: []string{"rapiddns", "rapid-dns"}, fetch: sources.FetchRapidDNS},
 	{id: "virustotal", name: "VirusTotal", aliases: []string{"virustotal", "vt"}, fetch: sources.FetchVirusTotal, enabled: sources.VirusTotalEnabled, enableHint: "set VT_API_KEY or add vt_api_key to the config file"},
 	{id: "shodan", name: "Shodan", aliases: []string{"shodan"}, fetch: sources.FetchShodan, enabled: sources.ShodanEnabled, enableHint: "set SHODAN_API_KEY or add shodan_api_key to the config file"},
+	{id: "fofa", name: "FOFA", aliases: []string{"fofa"}, fetch: sources.FetchFofa, enabled: sources.FofaEnabled, enableHint: "set FOFA_EMAIL and FOFA_KEY or add fofa_email and fofa_key to the config file"},
+	{id: "zoomeye", name: "ZoomEye", aliases: []string{"zoomeye", "zoom-eye"}, fetch: sources.FetchZoomEye, enabled: sources.ZoomEyeEnabled, enableHint: "set ZOOMEYE_API_KEY or add zoomeye_api_key to the config file"},
 }
 
 func main() {
@@ -163,6 +170,9 @@ func main() {
 		OTXAPIKey:    resolveAPIKey("OTX_API_KEY", configFile.OTXAPIKey),
 		VTAPIKey:     resolveAPIKey("VT_API_KEY", configFile.VTAPIKey),
 		ShodanAPIKey: resolveAPIKey("SHODAN_API_KEY", configFile.ShodanAPIKey),
+		FofaEmail:    resolveAPIKey("FOFA_EMAIL", configFile.FofaEmail),
+		FofaKey:      resolveAPIKey("FOFA_KEY", configFile.FofaKey),
+		ZoomEyeKey:   resolveAPIKey("ZOOMEYE_API_KEY", configFile.ZoomEyeKey),
 	})
 
 	selectedSources, err := selectSources(sourceRegistry, includeList, excludeList)
@@ -306,7 +316,7 @@ func querySources(domain string, sourceList []sourceDefinition, threads int, ver
 			defer func() { <-sem }()
 
 			startedAt := time.Now()
-			entries, err := source.fetch(domain)
+			entries, err := fetchWithRateLimitRetry(source, domain, verbose)
 			results <- sourceResult{index: index, source: source, entries: entries, err: err, duration: time.Since(startedAt)}
 		}(index, source)
 	}
@@ -346,6 +356,32 @@ func querySources(domain string, sourceList []sourceDefinition, threads int, ver
 	})
 
 	return completedResults, hadSuccess
+}
+
+func fetchWithRateLimitRetry(source sourceDefinition, domain string, verbose bool) ([]string, error) {
+	var entries []string
+	var err error
+
+	for attempt := 0; attempt <= maxRateLimitRetries; attempt++ {
+		entries, err = source.fetch(domain)
+		if err == nil || sources.ErrorHealth(err) != sources.HealthRateLimited || attempt == maxRateLimitRetries {
+			break
+		}
+
+		base := rateLimitBaseDelay * (1 << uint(attempt))
+		jitter := time.Duration(rand.Int63n(int64(rateLimitJitterRange))) - rateLimitJitterRange/2
+		delay := base + jitter
+		if delay < 0 {
+			delay = 0
+		}
+
+		if verbose {
+			fmt.Printf("[v] %s rate-limited; retrying in %s (attempt %d/%d)\n", source.name, formatDuration(delay), attempt+1, maxRateLimitRetries)
+		}
+		time.Sleep(delay)
+	}
+
+	return entries, err
 }
 
 func executeTargetScan(domain string, selectedSources []sourceDefinition, options scanOptions) (targetScanResult, error) {

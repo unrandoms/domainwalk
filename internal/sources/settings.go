@@ -14,6 +14,9 @@ type Options struct {
 	OTXAPIKey    string
 	VTAPIKey     string
 	ShodanAPIKey string
+	FofaEmail    string
+	FofaKey      string
+	ZoomEyeKey   string
 }
 
 const defaultTimeout = 30 * time.Second
@@ -68,4 +71,13 @@ func VirusTotalEnabled() bool {
 
 func ShodanEnabled() bool {
 	return currentOptions().ShodanAPIKey != ""
+}
+
+func FofaEnabled() bool {
+	opts := currentOptions()
+	return opts.FofaEmail != "" && opts.FofaKey != ""
+}
+
+func ZoomEyeEnabled() bool {
+	return currentOptions().ZoomEyeKey != ""
 }

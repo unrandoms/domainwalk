@@ -12,6 +12,9 @@ type File struct {
 	OTXAPIKey    string   `json:"otx_api_key"`
 	VTAPIKey     string   `json:"vt_api_key"`
 	ShodanAPIKey string   `json:"shodan_api_key"`
+	FofaEmail    string   `json:"fofa_email"`
+	FofaKey      string   `json:"fofa_key"`
+	ZoomEyeKey   string   `json:"zoomeye_api_key"`
 	Defaults     Defaults `json:"defaults"`
 }
 

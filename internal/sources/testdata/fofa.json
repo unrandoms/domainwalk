@@ -1,0 +1,10 @@
+{
+  "results": [
+    ["www.example.com"],
+    ["api.example.com"],
+    ["mail.example.com"],
+    ["www.example.com"]
+  ],
+  "error": false,
+  "errmsg": ""
+}

@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,6 +55,42 @@ func fetchTextWithOptions(requestURL string, headers map[string]string, config r
 	}
 
 	return string(body), nil
+}
+
+func fetchBodyPost(requestURL string, requestBody []byte, accept string) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodPost, requestURL, bytes.NewReader(requestBody))
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept", accept)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	if err != nil {
+		return nil, err
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound, http.StatusNoContent:
+		return nil, nil
+	default:
+		return nil, &httpStatusError{
+			StatusCode: resp.StatusCode,
+			Status:     resp.Status,
+			Body:       bodySnippet(body),
+		}
+	}
+
+	return body, nil
 }
 
 func fetchBody(requestURL string, headers map[string]string, accept string, config requestConfig) ([]byte, error) {
